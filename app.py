@@ -35,8 +35,7 @@ def fetch_sec_cik(ticker):
         return None
 
 def score_lender_quality(name):
-    # Force string to avoid Timestamp errors
-    name_str = str(name).upper() 
+    name_str = str(name).upper()
     
     tier_1_keywords = ['PENSION', 'RETIREMENT', 'TEACHERS', 'SYSTEM', 'TRUST', 'UNIVERSITY', 'ENDOWMENT']
     tier_2_keywords = ['VANGUARD', 'BLACKROCK', 'STATE STREET', 'FIDELITY']
@@ -94,9 +93,14 @@ if st.button("RUN ANALYSIS"):
                 st.error("No institutional holding data found. Try a larger cap ticker.")
             else:
                 # --- DATA CLEANING PIPELINE ---
-                holders = holders.iloc[:, :5] # Take first 5 columns
+                holders = holders.iloc[:, :5]
                 holders.columns = ['Holder', 'Shares', 'Date Reported', '% Out', 'Value']
-                holders['Holder'] = holders['Holder'].astype(str) # Force text format
+                
+                # FIX 1: Force Holder to String
+                holders['Holder'] = holders['Holder'].astype(str)
+                
+                # FIX 2: Force Shares to Number (This fixes the 's' error)
+                holders['Shares'] = pd.to_numeric(holders['Shares'], errors='coerce').fillna(0)
 
                 # Filter and Score
                 holders['Lending Tier'] = holders['Holder'].apply(score_lender_quality)
@@ -104,68 +108,5 @@ if st.button("RUN ANALYSIS"):
                 
                 # --- DASHBOARD ---
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Total Float Found", f"{total_shares:,}")
-                m2.metric("Counterparties Identified", len(holders))
-                m3.metric("Est. Daily Savings (200bps)", f"${(total_shares * 0.02 * 25 / 365):,.0f}")
-
-                st.subheader("🎯 Direct Lending Targets")
-                
-                # Color code Tier 1
-                st.dataframe(
-                    holders.style.apply(
-                        lambda x: ['background-color: #1e3a2f' if "Tier 1" in v else '' for v in x], 
-                        axis=1
-                    ),
-                    use_container_width=True
-                )
-
-                # --- OUTREACH GENERATOR ---
-                st.divider()
-                st.header("⚡ Execution: MSLA Outreach Generator")
-                
-                target_fund = st.selectbox("Select Counterparty for Outreach", holders['Holder'].tolist())
-                
-                email_body = f"""
-To: General Counsel, {target_fund}
-From: Militia Investments
-
-Re: Direct Stock Borrow Arrangement ({ticker}) - Master Securities Lending Agreement
-
-We have identified {target_fund} as a significant holder of {ticker} via recent 13F filings. 
-We are seeking to enter into a direct Master Securities Lending Agreement (MSLA) to borrow {ticker} inventory, bypassing prime brokerage intermediaries. 
-
-**Proposal:**
-1. **Collateral:** 102% Cash Collateral (Daily Mark-to-Market)
-2. **Fee Split:** We propose a fee split superior to your current Prime Broker lending agent rate.
-3. **Regulatory:** This arrangement will serve as a "Bona Fide Arrangement" under Regulation SHO Rule 203(b)(1).
-
-Please verify if your holdings are currently unencumbered and available for direct lending.
-
-Best,
-Ryan Crowley
-Legal Counsel Candidate
-"""
-                st.text_area("Draft Legal Correspondence", value=email_body, height=350)
-                
-                # --- COMPLIANCE LOG ---
-                st.divider()
-                st.markdown("### 📝 Compliance Audit Trail (Reg SHO)")
-                
-                tz = pytz.timezone('US/Eastern')
-                time_now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S EST")
-                
-                audit_log = f"""
-                [LOG ENTRY GENERATED: {time_now}]
-                ------------------------------------------------
-                USER: R. Crowley
-                ASSET: {ticker}
-                ACTION: Direct Locate Identification
-                STATUTE: 17 CFR § 242.203(b)(1)(i)
-                BASIS: Bona Fide Arrangement identified with {target_fund}.
-                STATUS: PENDING MSLA EXECUTION.
-                ------------------------------------------------
-                """
-                st.code(audit_log, language="text")
-
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+                m1.metric("Total Float Found", f"{total_shares:,.0f}")
+                m2
