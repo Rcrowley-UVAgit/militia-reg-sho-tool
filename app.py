@@ -108,4 +108,84 @@ with col2:
         if cik:
             st.markdown(f"**EDGAR Verification:** Confirmed (CIK: {cik})")
         else:
-            st.markdown("**ED
+            st.markdown("**EDGAR Verification:** Pending or Not Found")
+
+# --- 4. UI: SECTION 2 - EXECUTION ---
+
+if st.button("Execute Counterparty Query", type="primary"):
+    try:
+        with st.spinner(f"Querying institutional holdings for {ticker}..."):
+            stock = yf.Ticker(ticker)
+            
+            # Data Fetch
+            try:
+                holders = stock.institutional_holders
+                current_price = stock.fast_info['last_price']
+            except:
+                st.error("Error: Market data unavailable for this ticker.")
+                st.stop()
+
+            if holders is None or holders.empty:
+                st.warning("Notice: No institutional 13F data found. Entity may be below reporting thresholds.")
+            else:
+                # --- DATA PROCESSING ---
+                df = holders.copy()
+                
+                # Normalize Column Names
+                df.columns = [c.lower() for c in df.columns]
+                
+                # Dynamic Column Mapping
+                holder_col = next((c for c in df.columns if "holder" in c), df.columns[0])
+                shares_col = next((c for c in df.columns if "share" in c), df.columns[1])
+                date_col = next((c for c in df.columns if "date" in c), None)
+
+                # Numeric Conversion
+                df['Shares'] = pd.to_numeric(df[shares_col], errors='coerce').fillna(0)
+                
+                # Compliance Logic
+                df['Counterparty Class'] = df[holder_col].apply(classify_counterparty)
+                df['Market Value'] = df['Shares'] * current_price
+                
+                # Spread Savings Calculation (Assumed 200bps for HTB)
+                df['Est. Annual Savings'] = df['Market Value'] * 0.02
+                
+                # Sort: Best Counterparties first
+                df = df.sort_values(by=['Counterparty Class', 'Shares'], ascending=[True, False])
+
+                # --- METRICS & RISK ANALYSIS ---
+                st.markdown("---")
+                st.subheader("2. Liquidity & Risk Assessment")
+                
+                total_shares = df['Shares'].sum()
+                market_cap_located = total_shares * current_price
+                
+                # Concentration Risk
+                top_3_shares = df.head(3)['Shares'].sum()
+                concentration_ratio = (top_3_shares / total_shares) * 100
+                
+                # Data Vintage Check (Reasonable Grounds Test)
+                vintage_warning = False
+                if date_col:
+                    latest_date = pd.to_datetime(df[date_col]).max()
+                    days_old = (datetime.now() - latest_date).days
+                    if days_old > 60:
+                        vintage_warning = True
+                
+                # Metric Display
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Institutional Float Located", f"{total_shares:,.0f}")
+                m2.metric("Market Value of Float", f"${market_cap_located/1_000_000:,.1f}M")
+                m3.metric("Concentration (Top 3)", f"{concentration_ratio:.1f}%")
+                m4.metric("Est. Daily Spread Capture", f"${(market_cap_located * 0.02 / 360):,.0f}")
+
+                # Risk Alerts
+                if concentration_ratio > 50:
+                    st.warning("RISK ALERT: High Concentration. Top 3 holders control >50% of the located float. Diversify borrow sources to mitigate recall risk.")
+                
+                if vintage_warning:
+                    st.warning(f"COMPLIANCE ALERT: Data Vintage. The most recent 13F filing is {days_old} days old. Verify current holdings before executing MSLA.")
+
+                # --- TABLE DISPLAY ---
+                st.subheader("3. Identified Bona Fide Counterparties")
+                
+                # Clean table for display
