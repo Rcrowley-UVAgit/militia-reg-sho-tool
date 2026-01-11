@@ -189,3 +189,8 @@ if st.button("Execute Counterparty Query", type="primary"):
                 st.subheader("3. Identified Bona Fide Counterparties")
                 
                 # Clean table for display
+                display_df = df[[holder_col, 'Counterparty Class', 'Shares', 'Market Value']].copy()
+                display_df.columns = ['Institution', 'Counterparty Classification', 'Shares Held', 'Market Value ($)']
+                
+                st.dataframe(
+                    display_df.style.format
