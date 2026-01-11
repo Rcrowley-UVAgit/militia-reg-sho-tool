@@ -5,7 +5,7 @@ import requests
 from datetime import datetime
 import pytz
 
-# --- CONFIGURATION & STYLING ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="Militia Alpha: Direct Borrow Targeter", layout="wide")
 
 st.markdown("""
@@ -35,11 +35,7 @@ def fetch_sec_cik(ticker):
         return None
 
 def score_lender_quality(name):
-    """
-    Heuristic to identify 'Sticky Capital'.
-    FIX: Forces input to string to prevent 'Timestamp' errors.
-    """
-    # --- SAFETY FIX: Force string conversion ---
+    # Force string to avoid Timestamp errors
     name_str = str(name).upper() 
     
     tier_1_keywords = ['PENSION', 'RETIREMENT', 'TEACHERS', 'SYSTEM', 'TRUST', 'UNIVERSITY', 'ENDOWMENT']
@@ -98,19 +94,12 @@ if st.button("RUN ANALYSIS"):
                 st.error("No institutional holding data found. Try a larger cap ticker.")
             else:
                 # --- DATA CLEANING PIPELINE ---
-                # 1. Slice: Take only the first 5 columns to ignore extra metadata
-                holders = holders.iloc[:, :5]
-                
-                # 2. Rename: Standardize headers
+                holders = holders.iloc[:, :5] # Take first 5 columns
                 holders.columns = ['Holder', 'Shares', 'Date Reported', '% Out', 'Value']
-                
-                # 3. Type Cast: Force 'Holder' column to string (Fixes Timestamp Error)
-                holders['Holder'] = holders['Holder'].astype(str)
+                holders['Holder'] = holders['Holder'].astype(str) # Force text format
 
-                # 4. Filter: Apply Scoring Logic
+                # Filter and Score
                 holders['Lending Tier'] = holders['Holder'].apply(score_lender_quality)
-                
-                # 5. Metrics
                 total_shares = holders['Shares'].sum()
                 
                 # --- DASHBOARD ---
@@ -121,6 +110,7 @@ if st.button("RUN ANALYSIS"):
 
                 st.subheader("🎯 Direct Lending Targets")
                 
+                # Color code Tier 1
                 st.dataframe(
                     holders.style.apply(
                         lambda x: ['background-color: #1e3a2f' if "Tier 1" in v else '' for v in x], 
@@ -129,7 +119,7 @@ if st.button("RUN ANALYSIS"):
                     use_container_width=True
                 )
 
-                # --- ACTIONABLE WORK PRODUCT ---
+                # --- OUTREACH GENERATOR ---
                 st.divider()
                 st.header("⚡ Execution: MSLA Outreach Generator")
                 
@@ -166,4 +156,16 @@ Legal Counsel Candidate
                 
                 audit_log = f"""
                 [LOG ENTRY GENERATED: {time_now}]
-                --------------------------------
+                ------------------------------------------------
+                USER: R. Crowley
+                ASSET: {ticker}
+                ACTION: Direct Locate Identification
+                STATUTE: 17 CFR § 242.203(b)(1)(i)
+                BASIS: Bona Fide Arrangement identified with {target_fund}.
+                STATUS: PENDING MSLA EXECUTION.
+                ------------------------------------------------
+                """
+                st.code(audit_log, language="text")
+
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
