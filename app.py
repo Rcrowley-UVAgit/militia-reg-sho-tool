@@ -25,7 +25,8 @@ def fetch_sec_cik(ticker):
     except: return None
 
 def score_lender_quality(name):
-    name_str = str(name).upper()
+    # Safety: Ensure name is a string and handle potential 'float' or 'None' inputs
+    name_str = str(name).upper() if name is not None else ""
     t1 = ['PENSION', 'RETIREMENT', 'TEACHERS', 'SYSTEM', 'TRUST', 'UNIVERSITY', 'ENDOWMENT']
     t2 = ['VANGUARD', 'BLACKROCK', 'STATE STREET', 'FIDELITY']
     if any(k in name_str for k in t1): return "Tier 1: Sticky/Direct (High Priority)"
@@ -62,13 +63,17 @@ if st.button("RUN ANALYSIS"):
             if holders is None or holders.empty:
                 st.error("No institutional data found.")
             else:
-                # Data Pipeline
-                holders = holders.iloc[:, :5]
+                # Data Pipeline: Force alignment and clean types
+                holders = holders.iloc[:, :5].copy()
                 holders.columns = ['Holder', 'Shares', 'Date Reported', '% Out', 'Value']
-                holders['Holder'] = holders['Holder'].astype(str)
+                
+                # Conversion logic to prevent 'float' and 's' errors
+                holders['Holder'] = holders['Holder'].fillna("Unknown").astype(str)
                 holders['Shares'] = pd.to_numeric(holders['Shares'], errors='coerce').fillna(0)
+                
+                # Apply Scoring
                 holders['Lending Tier'] = holders['Holder'].apply(score_lender_quality)
-                total_shares = holders['Shares'].sum()
+                total_shares = int(holders['Shares'].sum())
                 
                 # Metrics
                 m1, m2, m3 = st.columns(3)
@@ -77,20 +82,21 @@ if st.button("RUN ANALYSIS"):
                 m3.metric("Est. Savings (200bps)", f"${(total_shares * 0.02 * 25 / 365):,.0f}")
 
                 st.subheader("🎯 Direct Lending Targets")
-                st.dataframe(holders.style.apply(lambda x: ['background-color: #1e3a2f' if "Tier 1" in v else '' for v in x], axis=1), use_container_width=True)
+                st.dataframe(holders.style.apply(lambda x: ['background-color: #1e3a2f' if "Tier 1" in v else '' for v in x if isinstance(v, str)], axis=1), use_container_width=True)
 
                 # Outreach
                 st.divider()
                 st.header("⚡ Execution: MSLA Outreach Generator")
-                target_fund = st.selectbox("Select Counterparty", holders['Holder'].tolist())
+                target_list = holders['Holder'].tolist()
+                target_fund = st.selectbox("Select Counterparty", target_list)
                 email_body = f"To: General Counsel, {target_fund}\nFrom: Militia Investments\n\nRe: Direct Stock Borrow Arrangement ({ticker})\n\nWe seek to enter a direct MSLA to bypass prime brokerage intermediaries under Reg SHO Rule 203(b)(1).\n\nBest,\nRyan Crowley"
                 st.text_area("Draft Legal Correspondence", value=email_body, height=200)
                 
-                # Audit
+                # Audit Trail
                 st.divider()
                 st.markdown("### 📝 Compliance Audit Trail")
                 tz = pytz.timezone('US/Eastern')
                 audit_log = f"[{datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S EST')}]\nUSER: R. Crowley\nASSET: {ticker}\nSTATUTE: 17 CFR § 242.203(b)(1)(i)\nSTATUS: PENDING MSLA."
                 st.code(audit_log, language="text")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Execution Error: {e}")
