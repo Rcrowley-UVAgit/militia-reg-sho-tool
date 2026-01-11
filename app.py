@@ -5,18 +5,22 @@ import requests
 from datetime import datetime
 import pytz
 
-# --- 1. CONFIGURATION & TERMINAL STYLING ---
+# --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(
-    page_title="Militia Alpha: Direct Borrow Targeter",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Direct Borrow Analysis Tool",
+    layout="wide"
 )
 
+# Clean, professional CSS (No emojis, readable contrast)
 st.markdown("""
 <style>
     body { font-family: 'IBM Plex Mono', monospace; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #4CAF50; }
-    h1, h2, h3 { color: #fafafa; font-weight: 700; }
+    h1, h2, h3 { font-weight: 600; color: #f0f0f0; }
+    .stAlert { border: 1px solid #444; background-color: #1e1e1e; color: #ddd; }
+    div[data-testid="stMetricValue"] { font-size: 28px; color: #4CAF50; }
+    div[data-testid="stMetricLabel"] { font-size: 14px; color: #aaa; }
+    
+    /* Hide default table indices */
     thead tr th:first-child {display:none}
     tbody th {display:none}
 </style>
@@ -25,7 +29,7 @@ st.markdown("""
 # --- 2. HELPER FUNCTIONS ---
 
 def get_sec_headers():
-    return {'User-Agent': 'MilitiaApplicant/1.0 (apply@virginia.edu)'}
+    return {'User-Agent': 'RegulatoryAnalysisTool/1.0 (apply@virginia.edu)'}
 
 def fetch_sec_cik(ticker):
     try:
@@ -40,52 +44,66 @@ def fetch_sec_cik(ticker):
         return None
 
 def score_lender_quality(name):
-    # --- FIX 1: SAFETY CAST ---
-    # Convert to string immediately to prevent 'Timestamp' errors
+    # Convert to string to prevent errors
     name_str = str(name).upper()
     
+    # Tier 1: Direct Lenders (Pensions, Endowments)
     tier_1 = ['PENSION', 'RETIREMENT', 'TEACHERS', 'SYSTEM', 'TRUST', 'UNIVERSITY', 'ENDOWMENT']
+    # Tier 2: Aggregators
     tier_2 = ['VANGUARD', 'BLACKROCK', 'STATE STREET', 'FIDELITY']
     
     if any(k in name_str for k in tier_1):
-        return "Tier 1: DIRECT SOURCE (High Priority)"
+        return "Tier 1: Direct Lender (Priority)"
     elif any(k in name_str for k in tier_2):
-        return "Tier 2: Aggregator (Agent Lended)"
+        return "Tier 2: Aggregator"
     else:
-        return "Tier 3: Standard Asset Mgr"
+        return "Tier 3: Asset Manager"
 
-# --- 3. SIDEBAR ---
-with st.sidebar:
-    st.title("⚖️ Legal Engineering")
-    st.info("**Objective:** Bypass Prime Broker Spread (50-300bps)")
-    st.markdown("""
-    **Reg SHO Rule 203(b)(1)**
-    *Broker-dealer must have reasonable grounds to believe the security can be borrowed.*
-    
-    **The Loophole:**
-    A **"Bona Fide Arrangement"** with a direct lender satisfies this.
-    """)
-    st.caption("Built by Ryan Crowley - UVA Law '26")
+# --- 3. EXPLANATORY CONTEXT (The Thesis) ---
 
-# --- 4. MAIN APPLICATION ---
-st.title("🛡️ Reg SHO Direct Borrow Targeter")
-st.markdown("##### Operationalizing Rule 203(b)(1) to cut out middlemen.")
+st.title("Direct Borrow Analysis Tool")
+st.markdown("### Regulation SHO Rule 203(b)(1) Optimization")
+
 st.divider()
 
-col1, col2 = st.columns([1, 2])
-with col1:
-    ticker = st.text_input("Target Ticker Symbol", value="GME").upper()
-with col2:
+col_a, col_b = st.columns(2)
+
+with col_a:
+    st.markdown("#### The Issue: Prime Broker Intermediation")
+    st.write("""
+    Standard short selling requires a "locate" from a Prime Broker. 
+    Brokers charge a spread to locate shares—often borrowing from pension funds at low rates (e.g., 50bps) 
+    and lending to funds at high rates (e.g., 300bps). This spread represents an inefficiency.
+    """)
+
+with col_b:
+    st.markdown("#### The Solution: Direct 'Bona Fide' Arrangements")
+    st.write("""
+    Under Regulation SHO Rule 203(b)(1), a broker-dealer is not required to use a Prime Broker 
+    if they have a "bona fide arrangement" to borrow the security directly.
+    
+    **This Tool:** bypasses the intermediary by identifying institutional holders (Pension Funds) 
+    eligible for direct Master Securities Lending Agreements (MSLA).
+    """)
+
+st.divider()
+
+# --- 4. THE TOOL ---
+
+col_input, col_status = st.columns([1, 2])
+with col_input:
+    ticker = st.text_input("Enter Ticker Symbol", value="GME").upper()
+with col_status:
     if ticker:
         cik = fetch_sec_cik(ticker)
         if cik:
-            st.success(f"SEC Verified: CIK {cik}")
+            st.success(f"SEC Database Verified: CIK {cik}")
         else:
-            st.warning("Validating Ticker...")
+            st.info("Verifying ticker with SEC...")
 
-if st.button("INITIATE TARGETING SEQUENCE", type="primary"):
+if st.button("Run Analysis", type="primary"):
     try:
-        with st.spinner(f"Scraping 13F Data for {ticker}..."):
+        with st.spinner(f"Analyzing 13F Holdings for {ticker}..."):
             stock = yf.Ticker(ticker)
             holders = stock.institutional_holders
             
@@ -93,101 +111,85 @@ if st.button("INITIATE TARGETING SEQUENCE", type="primary"):
             try:
                 current_price = stock.fast_info['last_price']
             except:
-                current_price = 10.00
+                current_price = 10.00 # Fallback
 
             if holders is None or holders.empty:
-                st.error(f"No data found for {ticker}.")
+                st.error("No institutional holding data found. Try a larger market cap company.")
             else:
-                # --- FIX 2: SMART COLUMN MAPPING ---
-                # Don't guess column order. Find the 'Holder' column dynamically.
+                # --- ROBUST DATA PROCESSING ---
                 holders = holders.copy()
-                
-                # Check current columns
                 cols = holders.columns.tolist()
                 
-                # Heuristic: Find the column that is likely the Name (Object/String) vs Date
+                # Dynamic Column Detection
                 holder_col = None
                 shares_col = None
                 
                 for c in cols:
-                    c_lower = str(c).lower()
-                    if "holder" in c_lower:
-                        holder_col = c
-                    elif "share" in c_lower:
-                        shares_col = c
+                    c_str = str(c).lower()
+                    if "holder" in c_str: holder_col = c
+                    elif "share" in c_str: shares_col = c
                 
-                # Fallback: If no column named "Holder", look for first string column
-                if not holder_col:
-                    obj_cols = holders.select_dtypes(include=['object']).columns
-                    if len(obj_cols) > 0:
-                        holder_col = obj_cols[0]
-                    else:
-                        # Worst case: Assume col 1 if col 0 is date
-                        holder_col = holders.columns[1]
+                # Fallbacks
+                if not holder_col: holder_col = holders.columns[1] # Assume pos 1 is name
+                if not shares_col: shares_col = holders.columns[0] # Assume pos 0 is shares (if not date)
 
-                # Ensure we have a shares column
-                if not shares_col:
-                     # Look for numeric column
-                     num_cols = holders.select_dtypes(include=['int64', 'float64']).columns
-                     if len(num_cols) > 0:
-                         shares_col = num_cols[0]
-                     else:
-                         shares_col = holders.columns[2]
-
-                # Standardize DataFrame
+                # Create Clean DataFrame
                 df_clean = pd.DataFrame()
                 df_clean['Holder'] = holders[holder_col]
-                df_clean['Shares'] = holders[shares_col]
                 
-                # Score Lenders (Safe Function)
-                df_clean['Lending Tier'] = df_clean['Holder'].apply(score_lender_quality)
+                # Force numeric conversion for shares
+                df_clean['Shares'] = pd.to_numeric(holders[shares_col], errors='coerce').fillna(0)
                 
-                # Sort
-                df_clean = df_clean.sort_values(by=['Lending Tier', 'Shares'], ascending=[True, False])
+                # Apply Logic
+                df_clean['Lending Category'] = df_clean['Holder'].apply(score_lender_quality)
                 
-                # Metrics
+                # Sort by Quality then Size
+                df_clean = df_clean.sort_values(by=['Lending Category', 'Shares'], ascending=[True, False])
+                
+                # --- METRICS CALCULATIONS ---
                 total_shares = df_clean['Shares'].sum()
                 market_val = total_shares * current_price
-                daily_savings = (market_val * 0.02) / 360
                 
+                # SAVINGS FORMULA: (Value * 200bps) / 360 days
+                spread_bps = 200
+                daily_savings = (market_val * (spread_bps / 10000)) / 360
+                
+                # Display Metrics
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Total Float Located", f"{total_shares:,.0f}")
-                m2.metric("Market Value", f"${market_val/1_000_000:,.1f}M")
-                m3.metric("Est. Daily Savings", f"${daily_savings:,.2f}")
+                m1.metric("Institutional Float Located", f"{total_shares:,.0f}")
+                m2.metric("Market Value of Float", f"${market_val/1_000_000:,.1f}M")
+                m3.metric("Est. Daily Cost Savings", f"${daily_savings:,.2f}")
+                
+                # --- METRIC EXPLANATIONS ---
+                with st.expander("Metric Definitions & Methodology", expanded=True):
+                    st.markdown(f"""
+                    * **Institutional Float Located:** The total number of shares held by institutions identified in the table below.
+                    * **Market Value:** The gross dollar value of these shares at the current price of **${current_price:.2f}**.
+                    * **Est. Daily Cost Savings:** The estimated daily revenue recaptured by bypassing a Prime Broker.
+                        * *Formula:* `(Market Value * Spread) / 360 days`
+                        * *Assumption:* A **{spread_bps} basis point (2.00%)** spread, typical for Hard-to-Borrow assets.
+                    """)
 
-                st.subheader("🎯 Prioritized Lending Targets")
+                # Display Data Table
+                st.subheader("Target Counterparty List")
                 st.dataframe(
-                    df_clean[['Holder', 'Lending Tier', 'Shares']], 
-                    use_container_width=True, 
+                    df_clean[['Holder', 'Lending Category', 'Shares']],
+                    use_container_width=True,
                     hide_index=True
                 )
-
-                # Execution
-                st.divider()
-                st.header("⚡ Execution: MSLA Outreach")
-                target = st.selectbox("Select Counterparty", df_clean['Holder'].tolist())
                 
-                email = f"""
-To: General Counsel, {target}
-Re: Direct Stock Borrow ({ticker}) - Reg SHO Rule 203(b)(1) Bona Fide Arrangement
-
-We have identified {target} as a holder of {ticker}. We propose a direct Master Securities Lending Agreement (MSLA) to bypass prime broker spreads.
-
-- Collateral: 102% Cash
-- Compliance: Reg SHO 203(b)(1) Direct Locate
-"""
-                st.text_area("Draft Correspondence", value=email, height=200)
-
-                # Log
-                st.divider()
+                # Compliance Log (Proof of Verification)
+                st.subheader("Regulatory Verification Log")
                 tz = pytz.timezone('US/Eastern')
-                log = f"""
-[LOG: {datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")}]
-TARGET: {target}
-STATUTE: 17 CFR § 242.203(b)(1)(i)
-STATUS: PENDING MSLA
-"""
-                st.code(log)
+                log_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S EST")
+                
+                st.code(f"""
+[SYSTEM LOG: {log_time}]
+ASSET:    {ticker}
+STATUTE:  17 CFR § 242.203(b)(1)(i)
+ACTION:   Identified {len(df_clean)} potential 'Bona Fide' arrangements.
+STATUS:   Ready for MSLA Execution.
+                """)
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Analysis Error: {e}")
