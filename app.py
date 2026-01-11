@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Clean, professional CSS (No emojis, readable contrast)
+# Professional CSS (Dark Mode, High Contrast, No Emojis)
 st.markdown("""
 <style>
     body { font-family: 'IBM Plex Mono', monospace; }
@@ -44,9 +44,7 @@ def fetch_sec_cik(ticker):
         return None
 
 def score_lender_quality(name):
-    # Convert to string to prevent errors
     name_str = str(name).upper()
-    
     # Tier 1: Direct Lenders (Pensions, Endowments)
     tier_1 = ['PENSION', 'RETIREMENT', 'TEACHERS', 'SYSTEM', 'TRUST', 'UNIVERSITY', 'ENDOWMENT']
     # Tier 2: Aggregators
@@ -59,51 +57,62 @@ def score_lender_quality(name):
     else:
         return "Tier 3: Asset Manager"
 
-# --- 3. EXPLANATORY CONTEXT (The Thesis) ---
+# --- 3. UI: SECTION 1 - THE ISSUE & SOLUTION ---
 
 st.title("Direct Borrow Analysis Tool")
-st.markdown("### Regulation SHO Rule 203(b)(1) Optimization")
+
+st.header("1. The Issue and Solution")
+st.markdown("""
+**The Issue: Prime Broker Intermediation**
+Standard short selling requires a "locate" from a Prime Broker. Brokers charge a significant spread to locate shares—often borrowing from pension funds at low rates (e.g., 50bps) and lending to hedge funds at high rates (e.g., 250bps+). This spread represents a market inefficiency and a "middleman tax" on the fund's returns.
+
+**The Solution: Direct 'Bona Fide' Arrangements**
+Under **Regulation SHO Rule 203(b)(1)**, a broker-dealer is not required to use a Prime Broker for a locate if they have a "bona fide arrangement" to borrow the security directly from a source. By identifying institutional holders (like Pension Funds) eligible for direct Master Securities Lending Agreements (MSLA), a fund can bypass the Prime Broker spread entirely.
+""")
 
 st.divider()
 
-col_a, col_b = st.columns(2)
+# --- 4. UI: SECTION 2 - HOW IT WORKS & METHODOLOGY ---
 
-with col_a:
-    st.markdown("#### The Issue: Prime Broker Intermediation")
-    st.write("""
-    Standard short selling requires a "locate" from a Prime Broker. 
-    Brokers charge a spread to locate shares—often borrowing from pension funds at low rates (e.g., 50bps) 
-    and lending to funds at high rates (e.g., 300bps). This spread represents an inefficiency.
-    """)
+st.header("2. How It Works")
+st.markdown("""
+**Operational Logic**
+This tool connects to regulatory filing databases to reverse-engineer the "supply side" of the stock loan market.
+1.  **Ingestion:** It takes a ticker symbol and queries the most recent 13F Institutional Holding filings.
+2.  **Filtering:** It applies a "Lender Quality" algorithm to identify sticky capital (Pensions/Endowments) vs. flighty capital (Hedge Funds).
+3.  **Calculation:** It estimates the specific dollar value saved by borrowing directly from these sources rather than paying a Prime Broker spread.
 
-with col_b:
-    st.markdown("#### The Solution: Direct 'Bona Fide' Arrangements")
-    st.write("""
-    Under Regulation SHO Rule 203(b)(1), a broker-dealer is not required to use a Prime Broker 
-    if they have a "bona fide arrangement" to borrow the security directly.
-    
-    **This Tool:** bypasses the intermediary by identifying institutional holders (Pension Funds) 
-    eligible for direct Master Securities Lending Agreements (MSLA).
-    """)
+**Metric Definitions & Methodology**
+The tool outputs three key metrics to quantify the "Legal Alpha":
+
+* **Institutional Float Located:** The total number of shares held by institutions identified in the 13F data.
+* **Market Value:** The gross dollar value of these shares at the current live market price.
+* **Est. Daily Cost Savings:** The estimated daily revenue recaptured by bypassing a Prime Broker.
+    * *Formula:* `(Market Value * Spread) / 360 days`
+    * *Assumption:* A **200 basis point (2.00%)** spread. This is a conservative estimate for Hard-to-Borrow (HTB) assets where spreads often exceed 500-1000bps.
+""")
 
 st.divider()
 
-# --- 4. THE TOOL ---
+# --- 5. UI: SECTION 3 - THE TOOL ITSELF ---
 
-col_input, col_status = st.columns([1, 2])
-with col_input:
-    ticker = st.text_input("Enter Ticker Symbol", value="GME").upper()
-with col_status:
-    if ticker:
-        cik = fetch_sec_cik(ticker)
-        if cik:
-            st.success(f"SEC Database Verified: CIK {cik}")
-        else:
-            st.info("Verifying ticker with SEC...")
+st.header("3. Run Analysis")
 
-if st.button("Run Analysis", type="primary"):
+# Input
+ticker = st.text_input("Enter Ticker Symbol (e.g., GME)", value="GME").upper()
+
+# Status Verification (Stacked)
+if ticker:
+    cik = fetch_sec_cik(ticker)
+    if cik:
+        st.success(f"SEC Database Verified: CIK {cik}")
+    else:
+        st.info("Verifying ticker with SEC...")
+
+# Execution Button
+if st.button("Generate Direct Borrow Targets", type="primary"):
     try:
-        with st.spinner(f"Analyzing 13F Holdings for {ticker}..."):
+        with st.spinner(f"Querying 13F Data and calculating spreads for {ticker}..."):
             stock = yf.Ticker(ticker)
             holders = stock.institutional_holders
             
@@ -116,7 +125,7 @@ if st.button("Run Analysis", type="primary"):
             if holders is None or holders.empty:
                 st.error("No institutional holding data found. Try a larger market cap company.")
             else:
-                # --- ROBUST DATA PROCESSING ---
+                # --- DATA PROCESSING ---
                 holders = holders.copy()
                 cols = holders.columns.tolist()
                 
@@ -129,67 +138,42 @@ if st.button("Run Analysis", type="primary"):
                     if "holder" in c_str: holder_col = c
                     elif "share" in c_str: shares_col = c
                 
-                # Fallbacks
-                if not holder_col: holder_col = holders.columns[1] # Assume pos 1 is name
-                if not shares_col: shares_col = holders.columns[0] # Assume pos 0 is shares (if not date)
+                if not holder_col: holder_col = holders.columns[1] 
+                if not shares_col: shares_col = holders.columns[0] 
 
                 # Create Clean DataFrame
                 df_clean = pd.DataFrame()
                 df_clean['Holder'] = holders[holder_col]
-                
-                # Force numeric conversion for shares
                 df_clean['Shares'] = pd.to_numeric(holders[shares_col], errors='coerce').fillna(0)
                 
-                # Apply Logic
+                # Logic & Sort
                 df_clean['Lending Category'] = df_clean['Holder'].apply(score_lender_quality)
-                
-                # Sort by Quality then Size
                 df_clean = df_clean.sort_values(by=['Lending Category', 'Shares'], ascending=[True, False])
                 
-                # --- METRICS CALCULATIONS ---
+                # Metrics
                 total_shares = df_clean['Shares'].sum()
                 market_val = total_shares * current_price
+                daily_savings = (market_val * 0.02) / 360
                 
-                # SAVINGS FORMULA: (Value * 200bps) / 360 days
-                spread_bps = 200
-                daily_savings = (market_val * (spread_bps / 10000)) / 360
-                
-                # Display Metrics
+                # Display Metrics (Columns used only for data grid, as standard UI practice)
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Institutional Float Located", f"{total_shares:,.0f}")
-                m2.metric("Market Value of Float", f"${market_val/1_000_000:,.1f}M")
+                m2.metric("Market Value", f"${market_val/1_000_000:,.1f}M")
                 m3.metric("Est. Daily Cost Savings", f"${daily_savings:,.2f}")
                 
-                # --- METRIC EXPLANATIONS ---
-                with st.expander("Metric Definitions & Methodology", expanded=True):
-                    st.markdown(f"""
-                    * **Institutional Float Located:** The total number of shares held by institutions identified in the table below.
-                    * **Market Value:** The gross dollar value of these shares at the current price of **${current_price:.2f}**.
-                    * **Est. Daily Cost Savings:** The estimated daily revenue recaptured by bypassing a Prime Broker.
-                        * *Formula:* `(Market Value * Spread) / 360 days`
-                        * *Assumption:* A **{spread_bps} basis point (2.00%)** spread, typical for Hard-to-Borrow assets.
-                    """)
-
-                # Display Data Table
-                st.subheader("Target Counterparty List")
+                # Display Table
+                st.subheader(f"Target Counterparty List ({ticker})")
                 st.dataframe(
                     df_clean[['Holder', 'Lending Category', 'Shares']],
                     use_container_width=True,
                     hide_index=True
                 )
                 
-                # Compliance Log (Proof of Verification)
-                st.subheader("Regulatory Verification Log")
+                # Log
+                st.markdown("**Regulatory Verification Log**")
                 tz = pytz.timezone('US/Eastern')
                 log_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S EST")
-                
-                st.code(f"""
-[SYSTEM LOG: {log_time}]
-ASSET:    {ticker}
-STATUTE:  17 CFR § 242.203(b)(1)(i)
-ACTION:   Identified {len(df_clean)} potential 'Bona Fide' arrangements.
-STATUS:   Ready for MSLA Execution.
-                """)
+                st.code(f"[SYSTEM LOG: {log_time}] ACTION: Identified {len(df_clean)} potential 'Bona Fide' arrangements for {ticker}.")
 
     except Exception as e:
         st.error(f"Analysis Error: {e}")
