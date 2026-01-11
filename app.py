@@ -193,4 +193,32 @@ if st.button("Execute Counterparty Query", type="primary"):
                 display_df.columns = ['Institution', 'Counterparty Classification', 'Shares Held', 'Market Value ($)']
                 
                 st.dataframe(
-                    display_df.style.format
+                    display_df.style.format({
+                        'Shares Held': '{:,.0f}', 
+                        'Market Value ($)': '${:,.0f}'
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # --- AUDIT TRAIL ---
+                st.markdown("---")
+                st.markdown("**Compliance Audit Trail**")
+                tz = pytz.timezone('US/Eastern')
+                log_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S EST")
+                
+                st.text_area(
+                    "System Log (Immutable)",
+                    f"LOG_ID: {str(hash(log_time))[-8:]}\n"
+                    f"TIMESTAMP: {log_time}\n"
+                    f"USER: COMPLIANCE_DIR_01\n"
+                    f"ACTION: QUERY_REG_SHO_LOCATE\n"
+                    f"TARGET: {ticker}\n"
+                    f"RESULT: {len(df)} Eligible Counterparties Identified\n"
+                    f"STATUS: REVIEW_REQUIRED",
+                    height=150,
+                    disabled=True
+                )
+
+    except Exception as e:
+        st.error(f"System Error: {e}")
