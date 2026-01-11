@@ -106,10 +106,12 @@ if st.button("RUN ANALYSIS"):
             # Get Institutional Holders
             holders = stock.institutional_holders
             
-            if holders is None or holders.empty:
+           if holders is None or holders.empty:
                 st.error("No institutional holding data found. Try a larger cap ticker.")
             else:
                 # Clean and Process Data
+                # PATCH: yfinance API now returns 6 columns. We take the first 5.
+                holders = holders.iloc[:, :5]
                 holders.columns = ['Holder', 'Shares', 'Date Reported', '% Out', 'Value']
                 
                 # Apply the "Militia Filter"
